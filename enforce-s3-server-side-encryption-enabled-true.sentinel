@@ -1,21 +1,27 @@
 import "tfplan/v2" as tfplan
 
-//find all aws_s3_bucket that will be created/updated and don't have serveri side encryption block
-violatingS3Buckets = filter tfplan.resource_changes as _, rc {
-	rc.type is "aws_s3_bucket" and
-		rc.mode is "managed" and
-		(rc.change.actions contains "create" or rc.change.actions contains "update") and
-		(rc.change.after not contains "aws_s3_bucket_server_side_encryption_configuration" or
-			length(rc.change.after.aws_s3_bucket_server_side_encryption_configuration) == 0)
+# Get all S3 buckets that are being created
+s3_buckets = filter tfplan.resource_changes as _, rc {
+    rc.type is "aws_s3_bucket" and
+    rc.mode is "managed" and rc.change.actions contains "create"
 }
 
-for violatingS3Buckets as address, bucket {
-	print(address + " does not have server side encryption configured.")
+# Get all S3 SSE config resources being created
+s3_sse_configs = filter tfplan.resource_changes as _, rc {
+    rc.type is "aws_s3_bucket_server_side_encryption_configuration" and
+    rc.mode is "managed" and rc.change.actions contains "create"
 }
 
-// debug code
-// print(violatingS3Buckets)
+# Map SSE configs by bucket (assuming bucket name is used directly in the 'bucket' argument)
+s3_sse_buckets = [rc.change.after.bucket for _, rc in s3_sse_configs]
 
+# Ensure every bucket being created has a corresponding SSE config
+unencrypted_buckets = filter s3_buckets as _, rc {
+    bucket_name = rc.change.after.bucket
+    not bucket_name in s3_sse_buckets
+}
+
+# Main rule fails if any unencrypted bucket is found
 main = rule {
-	length(violatingS3Buckets) == 0
+    length(unencrypted_buckets) is 0
 }
