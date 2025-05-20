@@ -1,27 +1,27 @@
 import "tfplan/v2" as tfplan
 
-# Get all S3 buckets that are being created
+# Collect all new S3 buckets being created
 s3_buckets = filter tfplan.resource_changes as _, rc {
     rc.type is "aws_s3_bucket" and
     rc.mode is "managed" and rc.change.actions contains "create"
 }
 
-# Get all S3 SSE config resources being created
+# Collect all new SSE configuration resources
 s3_sse_configs = filter tfplan.resource_changes as _, rc {
     rc.type is "aws_s3_bucket_server_side_encryption_configuration" and
     rc.mode is "managed" and rc.change.actions contains "create"
 }
 
-# Map SSE configs by bucket (assuming bucket name is used directly in the 'bucket' argument)
+# Extract the bucket names from the SSE configurations
 s3_sse_buckets = [rc.change.after.bucket for _, rc in s3_sse_configs]
 
-# Ensure every bucket being created has a corresponding SSE config
+# Filter buckets that do NOT have a matching SSE configuration
 unencrypted_buckets = filter s3_buckets as _, rc {
     bucket_name = rc.change.after.bucket
-    not bucket_name in s3_sse_buckets
+    not contains(s3_sse_buckets, bucket_name)
 }
 
-# Main rule fails if any unencrypted bucket is found
+# Final rule: all new buckets must have matching SSE config
 main = rule {
     length(unencrypted_buckets) is 0
 }
